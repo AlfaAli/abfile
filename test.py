@@ -62,23 +62,15 @@ class ABFileTest(unittest.TestCase) :
       amin = numpy.amin(wfldin)
       abmindiff=numpy.abs(amin-bmin)/scale
       abmaxdiff=numpy.abs(amax-bmax)/scale
-      #print amin,amax
-      #print bmin,bmax
       if not (fldmaxdiff > 1e-7 and abmindiff >1e-5 and abmaxdiff > 1e-5):
-         #print "test_Abfilebathy_writeread_nomasl test passed"
          pass
       else :
          self.fail("AFile IO failed. MAx diff between read/written: %14.7g"%max([fldmaxdiff,abmaxdiff,abmindiff]))
 
 
-   def test_abfilegrid_read(self) :
-      regfile=abfile.ABFileGrid("regional.grid","r")
-      plon=regfile.read_field("plon")
-      #print regfile.fieldnames
-      #print plon
-      #regfile.writefield(wfld,None)
-      #regfile.close()
-      #print "test_abfilegrid_read test passed"
+#   def test_abfilegrid_read(self) :
+#      regfile=abfile.ABFileGrid("regional.grid","r")
+#      plon=regfile.read_field("plon")
 
    def test_abfilegrid_write(self) :
       idm = random.randrange(10,5000)
@@ -91,9 +83,9 @@ class ABFileTest(unittest.TestCase) :
       regfile.close()
 
 
-   #def test_abfilegrid_contents(self) :
-   #   regfile=abfile.ABFileGrid("regional.grid","r")
-   #   for k 
+#   def test_abfilegrid_contents(self) :
+#      regfile=abfile.ABFileGrid("regional.grid","r")
+#      for k 
       
 
    def test_abfilearchv_read(self) :
@@ -112,6 +104,7 @@ class ABFileTest(unittest.TestCase) :
       archv.close()
 
    def test_abfileforcing_writeread(self) :
+      scale=1e2
       archv=abfile.ABFileForcing("test.airtmp","w",cline1="test",cline2="test")
       fld1=numpy.random.rand(100,100)
       fld2=numpy.random.rand(100,100)
@@ -123,13 +116,18 @@ class ABFileTest(unittest.TestCase) :
 
       archv=abfile.ABFileForcing("test.airtmp","r")
       fldin = archv.read_field("airtmp",39814.5000)
-
-      maxdiff=max_diff(fld2,fldin)
       bmin,bmax = archv.bminmax("airtmp",39814.5)
-      if maxdiff < 1e-7 :
+
+      fldmaxdiff=numpy.abs(numpy.amax(fldin-fld2))/scale
+      amax = numpy.amax(fldin)
+      amin = numpy.amin(fldin)
+      abmindiff=numpy.abs(amin-bmin)/scale
+      abmaxdiff=numpy.abs(amax-bmax)/scale
+      #print abmaxdiff
+      if not (fldmaxdiff > 1e-7 and abmindiff >1e-5 and abmaxdiff > 1e-5):
          pass
       else :
-         self.fail("ABFileForcing IO failed. MAx diff between read/written: %14.7g"%max([maxdiff]))
+         self.fail("AFile IO failed. MAx diff between read/written: %14.7g"%max([fldmaxdiff,abmaxdiff,abmindiff]))
 
 
 def max_diff(fld1,fld2) :
@@ -141,5 +139,3 @@ def max_diff(fld1,fld2) :
              
 if __name__ == "__main__" :
    unittest.main(verbosity=2)
-   #suite = unittest.TestLoader().loadTestsFromTestCase(TestStringMethods)
-   #unittest.TextTestRunner(verbosity=2).run(suite)

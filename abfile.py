@@ -47,7 +47,6 @@ class AFile(object) :
       if self._endian.lower() not in ["little","big","native"]  :
          raise AFileError("action argument must be either native, little ort big")
 
-      
       if self._endian.lower() == "native" :
          self._endian=sys.byteorder
 
@@ -57,7 +56,6 @@ class AFile(object) :
          self._endian_structfmt = "<"
 
       logging.debug("Endianness set to %s",self._endian)
-
 
       self._init_record()
       self._open()
@@ -131,7 +129,6 @@ class AFile(object) :
       w.shape=(self.jdm,self.idm)
 
       return w
-
 
 
    def seekrecord(self,record) :
@@ -609,34 +606,4 @@ def read_regional_grid(endian="big") :
       res[fldname] = regf.read_field(fldname)
    regf.close()
    return res
-
-
-
-#def write_newpos(grid) :
-#   #logging.debug("Endianness set to %s",endian)
-#   #logging.debug("Byteswapping is   %s"%str(swap_endian))
-#
-#   # Number of records
-#   plon,plat=grid.pgrid()
-#   nrec = numpy.array([plon.size+plat.size])
-#   nrec = nrec.astype("i4")
-#
-#   # Write to file, handle endianness ?
-#   plon = plon.astype(numpy.float64)
-#   plat = plat.astype(numpy.float64)
-#   plon_binpack=struct.pack("=%dd"%plon.size,*plon.flatten()[:])
-#   plat_binpack=struct.pack("=%dd"%plat.size,*plat.flatten()[:])
-#   nrec_binpack=struct.pack("=i",plon.size)
-#
-#   # Fortran sequential unformatted access requires number of elements as first and last 4 bytes...
-#   fid=open("newpos.uf","wb")
-#   fid.write(nrec_binpack)
-#   fid.write(plon_binpack)
-#   fid.write(plat_binpack)
-#   fid.write(nrec_binpack)
-#   fid.close()
-#
-#
-#   
-
 
