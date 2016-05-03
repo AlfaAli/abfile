@@ -32,7 +32,8 @@ class BFileError(Exception) :
 
 
 class AFile(object) :
-   """ Class for doing binary input/output on hycom .a files """
+   """ Class for doing binary input/output on hycom .a files. Normally used by 
+   ABFile* classes, but can be called by itself to read a .a-file """
    _huge = 2.0**100
    def __init__(self,idm,jdm,filename,action,mask=False,real4=True,endian="big") :
       self._idm = idm
@@ -162,7 +163,8 @@ class AFile(object) :
 
 
 class ABFile(object) :
-   """ Class for doing binary input/output on hycom .b files """
+   """ Class for doing input/output on pairs of hycom .a and .b files. Base class, 
+   not meant to be used directly """
 
    def __init__(self,basename,action,mask=False,real4=True,endian="big") :
       self._basename=basename
@@ -243,8 +245,14 @@ class ABFile(object) :
       self._filea.close()
       self._fileb.close()
 
+   def check_dimensions(self,field) :
+      if self._idm <> field.shape[1] or self._jdm <> field.shape[0] :
+         msg = "dimensions do not match for field. Field dim=%dX%d, file dim=%dX%d"%(field.shape[0].field.shape[1], self._idm, self._jdm)
+         raise BFileError,msg
+
 
 class ABFileBathy(ABFile) :
+   """ Class for doing input/output on pairs of hycom .a and .b files. This is for bathymetry files"""
    def __init__(self,basename,action,mask=False,real4=True,endian="big",idm=None,jdm=None) :
 
       super(ABFileBathy,self).__init__(basename,action,mask=mask,real4=real4,endian=endian)
@@ -327,6 +335,7 @@ class ABFileBathy(ABFile) :
 
 
 class ABFileGrid(ABFile) :
+   """ Class for doing input/output on pairs of hycom .a and .b files. This is for grid files"""
    fieldkeys=["min","max"]
    def __init__(self,basename,action,mask=False,real4=True,endian="big",mapflg=-1) :
 
@@ -345,6 +354,12 @@ class ABFileGrid(ABFile) :
       item,self._idm    = self.scanitem(item="idm",conversion=int)
       item,self._jdm    = self.scanitem(item="jdm",conversion=int)
       item,self._mapflg = self.scanitem(item="mapflg",conversion=int)
+
+
+   def write_header(self) :
+      self.writeitem("idm",self._idm)
+      self.writeitem("jdm",self._jdm)
+      self.writeitem("mapflg",self._mapflg)
 
 
    def read_field_info(self) :
@@ -386,10 +401,9 @@ class ABFileGrid(ABFile) :
       self._open_filea_if_necessary(field)
       if self._firstwrite :
          self._jdm,self._idm=field.shape
-         self.writeitem("idm",self._idm)
-         self.writeitem("jdm",self._jdm)
-         self.writeitem("mapflg",self._mapflg)
          self._firstwrite=False
+         self.write_header()
+      self.check_dimensions(field)
       hmin,hmax = self._filea.writerecord(field,mask)
       fmtstr="%%4s:  min,max =%s %s\n"%(fmt,fmt)
       self._fileb.write(fmtstr%(fieldname,hmin,hmax))
@@ -409,23 +423,22 @@ class ABFileGrid(ABFile) :
 
 
 class ABFileArchv(ABFile) :
+   """ Class for doing input/output on pairs of hycom .a and .b files. This is for archv files"""
    fieldkeys=["field","step","day","k","dens","min","max"]
    def __init__(self,basename,action,mask=False,real4=True,endian="big",
          iversn=None,iexpt=None,yrflag=None,idm=None,jdm=None) :
 
       super(ABFileArchv,self).__init__(basename,action,mask=mask,real4=real4,endian=endian)
       if self._action == "r" :
-         self._read_header() # Sets internal metadata. Overrides those on input
-         self._read_field_info()
+         self.read_header() # Sets internal metadata. Overrides those on input
+         self.read_field_info()
          self._open_filea_if_necessary(numpy.zeros((self._jdm,self._idm)))
       elif self._action == "w" :
          # Need to test if idm, jdm, etc is set at this stage
          raise NotImplementedError,"ABFileArchv writing not implemented"
 
 
-
-
-   def _read_header(self) :
+   def read_header(self) :
       self._header=[]
       self._header.append(self.readline())
       self._header.append(self.readline())
@@ -438,7 +451,7 @@ class ABFileArchv(ABFile) :
       item,self._idm    = self.scanitem(item="idm",conversion=int)
       item,self._jdm    = self.scanitem(item="jdm",conversion=int)
 
-   def _read_field_info(self) :
+   def read_field_info(self) :
       # Get list of fields from .b file
       #field       time step  model day  k  dens        min              max
       #montg1   =      67392    351.000  1 25.000   0.0000000E+00   0.0000000E+00
@@ -489,6 +502,7 @@ class ABFileArchv(ABFile) :
       
       
 class ABFileForcing(ABFile) :
+   """ Class for doing input/output on pairs of hycom .a and .b files. This is for forcing files"""
    fieldkeys=["field","min","max"]
    def __init__(self,basename,action,mask=False,real4=True,endian="big", idm=None,jdm=None,
                 cline1="",cline2=""):
@@ -499,12 +513,12 @@ class ABFileForcing(ABFile) :
       if action == "w" :
          pass
       else :
-         self._read_header()
-         self._read_field_info()
+         self.read_header()
+         self.read_field_info()
          self._open_filea_if_necessary(numpy.zeros((self._jdm,self._idm)))
 
 
-   def _read_header(self) :
+   def read_header(self) :
       self._header=[]
       self._header.append(self.readline())
       self._header.append(self.readline())
@@ -522,21 +536,26 @@ class ABFileForcing(ABFile) :
                self._filename, self._header[4].strip())
 
 
+   def write_header(self) :
+      self._fileb.write(self._cline1.strip()+"\n")
+      self._fileb.write(self._cline2.strip()+"\n")
+      self._fileb.write("\n")
+      self._fileb.write("\n")
+      self._fileb.write("i/jdm =%5d %5d\n"%(self._idm,self._jdm))
+
+
    def write_field(self,field,mask,fieldname,dtime1,rdtime) :
       self._open_filea_if_necessary(field)
       if self._firstwrite :
          self._jdm,self._idm=field.shape
-         self._fileb.write(self._cline1.strip()+"\n")
-         self._fileb.write(self._cline2.strip()+"\n")
-         self._fileb.write("\n")
-         self._fileb.write("\n")
-         self._fileb.write("i/jdm =%5d %5d\n"%(self._idm,self._jdm))
          self._firstwrite=False
+         self.write_header()
+      self.check_dimensions(field)
       hmin,hmax = self._filea.writerecord(field,mask)
       self._fileb.write("%s:dtime1,range = %12.4f%12.4f,%14.6e%14.6e\n"%(fieldname,dtime1,rdtime,hmin,hmax))
 
 
-   def _read_field_info(self) :
+   def read_field_info(self) :
       # Get list of fields from .b file
       #plon:  min,max =      -179.99806       179.99998
       #plat:  min,max =       -15.79576        89.98227
@@ -582,6 +601,10 @@ class ABFileForcing(ABFile) :
          ret = (None,None)
       return ret
       
+
+class ABFileRestart(ABFile) :
+   """ Class for doing input/output on pairs of hycom .a and .b files. This is for restart files"""
+   pass
       
 
 def write_bathymetry(exp,version,d,threshold) :
