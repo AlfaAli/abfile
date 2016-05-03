@@ -611,7 +611,7 @@ def write_bathymetry(exp,version,d,threshold) :
    regf = ABFileBathy("depth_%s_%02d"%(exp,version),"w",idm=d.shape[0],jdm=d.shape[1],mask=True)
    d=numpy.copy(d)
    mask=d <= threshold
-   regf.writefield(d,mask)
+   regf.write_field(d,mask)
    regf.close()
 
 
