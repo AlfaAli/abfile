@@ -25,3 +25,4 @@ This repository contains code that can be used to read and write files from the 
 
 ## License
 
+MIT License
