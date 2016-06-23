@@ -251,6 +251,27 @@ class ABFile(object) :
          raise BFileError,msg
 
 
+
+   @property
+   def idm(self):
+      return self._idm
+
+
+   @property
+   def jdm(self):
+      return self._jdm
+
+
+
+   #@classmethod
+   #def factory(cls,bfile) :
+   #   """Return correct class bassed on guesstimates"""
+
+
+
+
+
+
 class ABFileBathy(ABFile) :
    """ Class for doing input/output on pairs of hycom .a and .b files. This is for bathymetry files"""
    def __init__(self,basename,action,mask=False,real4=True,endian="big",idm=None,jdm=None) :
@@ -258,9 +279,11 @@ class ABFileBathy(ABFile) :
       super(ABFileBathy,self).__init__(basename,action,mask=mask,real4=real4,endian=endian)
       if action == "r" :
          if idm <> None and jdm <> None:
+            self._idm=idm
+            self._jdm=jdm
             self.read_header()
             self.read_field_info()
-            self._open_filea_if_necessary(numpy.zeros((jdm,idm)))
+            self._open_filea_if_necessary(numpy.zeros((self._jdm,self._idm)))
          else :
             raise BFileError,"ABFileBathy opened as read, but idm and jdm not provided"
       else :
@@ -604,11 +627,206 @@ class ABFileForcing(ABFile) :
 
 class ABFileRestart(ABFile) :
    """ Class for doing input/output on pairs of hycom .a and .b files. This is for restart files"""
+   fieldkeys=["field","step","day","k","dens","min","max"]
+   def __init__(self,basename,action,mask=False,real4=True,endian="big",
+         iversn=None,iexpt=None,yrflag=None,idm=None,jdm=None) :
+
+      super(ABFileRestart,self).__init__(basename,action,mask=mask,real4=real4,endian=endian)
+      if self._action == "r" :
+         if idm <> None and jdm <> None:
+            self._idm=idm
+            self._jdm=jdm
+            self.read_header() # Sets internal metadata. Overrides those on input
+            self.read_field_info()
+            self._open_filea_if_necessary(numpy.zeros((self._jdm,self._idm)))
+         else :
+            raise BFileError,"ABFileBathy opened as read, but idm and jdm not provided"
+      elif self._action == "w" :
+         # Need to test if idm, jdm, etc is set at this stage
+         raise NotImplementedError,"ABFileRestart writing not implemented"
+
+
+   def read_header(self) :
+      self._header=[]
+      self._header.append(self.readline())
+      self._header.append(self.readline())
+
+      print self._header[0]
+      m=re.match("RESTART2: iexpt,iversn,yrflag,sigver[ ]*=[ ]*([0-9]+)[ ]+([0-9]+)[ ]+([0-9]+)[ ]+([0-9]+)",self._header[0])
+      self._iexpt=int(m.group(1))
+      self._iversn=int(m.group(2))
+      self._yrflag=int(m.group(3))
+      self._sigver=int(m.group(4))
+      m2=re.match("RESTART2: nstep,dtime,thbase[ ]*=[ ]*([^ ]+)[ ]+([^ ]+)[ ]+([^ ]+)",self._header[1])
+      self._nstep=int(m.group(1))
+      self._dtime=float(m.group(2))
+      self._thbase=float(m.group(2))
+
+   def read_field_info(self) :
+      # Get list of fields from .b file
+      #field       time step  model day  k  dens        min              max
+      #montg1   =      67392    351.000  1 25.000   0.0000000E+00   0.0000000E+00
+      #
+      self._fields={}
+      line=self.readline()
+      line=self.readline().strip()
+      i=0
+      while line :
+         m = re.match("^([a-z_ ]+): layer,tlevel,range =[ ]*([^ ]+)[ ]+([^ ]+)[ ]+([^ ]+)[ ]+([^ ]+)",line)
+         if m :
+            self._fields[i] = {}
+            self._fields[i]["field"] = m.group(1).strip()
+            self._fields[i]["k"] = int(m.group(2))
+            self._fields[i]["tlevel"] = int(m.group(3))
+            self._fields[i]["min"] = float(m.group(4))
+            self._fields[i]["max"] = float(m.group(5))
+         else :
+            raise NameError,"unable to parse line %s"%line
+         i+=1
+         line=self.readline().strip()
+
+
+   def read_field(self,fieldname,level,tlevel=1) :
+      """ Read field corresponding to fieldname and level from archive file"""
+      record = None
+      for i,d in self._fields.items() :
+         if d["field"] == fieldname and level == d["k"] and d["tlevel"] == tlevel :
+            record=i
+      if record  is not None :
+         w = self._filea.read_record(record) 
+      else :
+         w = None
+      return w
+
+
+   @property
+   def fieldlevels(self) :
+      return set([elem["k"] for elem in self._fields.values()])
+
+   def bminmax(self,fieldname,k) :
+      record=None
+      for i,d in self._fields.items() :
+         if d["field"] == fieldname and d["k"] == k:
+            record=i
+      if record  is not None :
+         ret = (self._fields[i]["min"],self._fields[i]["max"])
+      else :
+         ret = (None,None)
+      return ret
+      
    pass
+
+
+class ABFileRelax(ABFileArchv) :
+   """ Class for doing input/output on pairs of hycom .a and .b files. This is for hybrid coords data used by hycom """
+   pass
+
+
+      
+class ABFileRelaxZ(ABFile) :
+   """ Class for doing input/output on pairs of hycom .a and .b files. This is for z level data used by hycom relax routine """
+   fieldkeys=["field","depth","min","max"]
+   def __init__(self,basename,action,mask=False,real4=True,endian="big", idm=None,jdm=None,
+                cline1="",cline2=""):
+      super(ABFileRelaxZ,self).__init__(basename,action,mask=mask,real4=real4,endian=endian)
+      self._cline1=cline1
+      self._cline2=cline2
+      if action == "w" :
+         pass
+      else :
+         self.read_header()
+         self.read_field_info()
+         self._open_filea_if_necessary(numpy.zeros((self._jdm,self._idm)))
+
+
+   def read_header(self) :
+      self._header=[]
+      self._header.append(self.readline())
+      self._header.append(self.readline())
+      self._header.append(self.readline())
+      self._header.append(self.readline())
+      self._header.append(self.readline())
+      self._cline1=self._header[0].strip()
+      self._cline2=self._header[1].strip()
+      m = re.match("i/jdm[ ]*=[ ]*([0-9]+)[ ]+([0-9]+)",self._header[4].strip())
+      if m :
+         self._idm = int(m.group(1))
+         self._jdm = int(m.group(2))
+      else :
+         raise  AFileError, "Unable to parse idm, jdm from header. File=%s, Parseable string=%s"%(
+               self._filename, self._header[4].strip())
+
+
+   def write_header(self) :
+      self._fileb.write(self._cline1.strip()+"\n")
+      self._fileb.write(self._cline2.strip()+"\n")
+      self._fileb.write("\n")
+      self._fileb.write("\n")
+      self._fileb.write("i/jdm =%5d %5d\n"%(self._idm,self._jdm))
+
+
+   def write_field(self,field,mask,fieldname,depth) :
+      self._open_filea_if_necessary(field)
+      if self._firstwrite :
+         self._jdm,self._idm=field.shape
+         self._firstwrite=False
+         self.write_header()
+      self.check_dimensions(field)
+      hmin,hmax = self._filea.writerecord(field,mask)
+      self._fileb.write("%s: depth,range = %12.4f %14.6e%14.6e\n"%(fieldname,depth,hmin,hmax))
+
+
+   def read_field_info(self) :
+      # Get list of fields from .b file
+      #plon:  min,max =      -179.99806       179.99998
+      #plat:  min,max =       -15.79576        89.98227
+      #...
+      self._fields={}
+      line=self.readline().strip()
+      i=0
+      while line :
+         m = re.match("^(.*):[ ]*depth,[ ]*range[ ]*=[ ]*([0-9\-\.e+]+)[ ]+([0-9\-\.e+]+)[ ]+([0-9\-\.e+]+)",line)
+         if m :
+            self._fields[i] = {}
+            self._fields[i]["field"]  = m.group(1).strip()
+            self._fields[i]["depth"] = float(m.group(2).strip())
+            self._fields[i]["min"]  = float(m.group(3).strip())
+            self._fields[i]["max"]  = float(m.group(4).strip())
+         else :
+            raise NameError,"cant parse forcing field"
+         i+=1
+         line=self.readline().strip()
+
+
+
+   def read_field(self,field,dtime1) :
+      """ Read field corresponding to fieldname and level from archive file"""
+      elems = [ (k,v["dtime1"]) for k,v in self._fields.items() if v["field"] == field]
+      dist = numpy.array([elem[1]-dtime1 for elem in elems])
+      i =numpy.argmin(numpy.abs(dist))
+      rec,dt = elems[i]
+      w = self._filea.read_record(i) 
+      #print w
+      return w#,dt
+
+
+   def bminmax(self,fieldname,depth) :
+      record=None
+      for i,d in self._fields.items() :
+         if d["field"] == fieldname and d["depth"] == dtime1:
+            record=i
+      if record  is not None :
+         ret = (self._fields[i]["min"],self._fields[i]["max"])
+      else :
+         ret = (None,None)
+      return ret
       
 
+
 def write_bathymetry(exp,version,d,threshold) :
-   regf = ABFileBathy("depth_%s_%02d"%(exp,version),"w",idm=d.shape[0],jdm=d.shape[1],mask=True)
+   myfile="depth_%s_%02d"%(exp,version)
+   logger.info("Writing to %s.[ab]"%myfile)
+   regf = ABFileBathy(myfile,"w",idm=d.shape[0],jdm=d.shape[1],mask=True)
    d=numpy.copy(d)
    mask=d <= threshold
    regf.write_field(d,mask)
