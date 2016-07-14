@@ -34,7 +34,7 @@ class BFileError(Exception) :
 class AFile(object) :
    """ Class for doing binary input/output on hycom .a files. Normally used by 
    ABFile* classes, but can be called by itself to read a .a-file """
-   _huge = 2.0**100
+   huge = 2.0**100
    def __init__(self,idm,jdm,filename,action,mask=False,real4=True,endian="big") :
       self._idm = idm
       self._jdm = jdm 
@@ -124,10 +124,11 @@ class AFile(object) :
          fmt =  "%s%dd"%(self._endian_structfmt,self.n2drec)
 
       w =  numpy.array(struct.unpack(fmt,raw))
-      w=numpy.ma.masked_where(w>self._huge*.5,w)
 
       w=w[0:self.idm*self.jdm]
       w.shape=(self.jdm,self.idm)
+      w=numpy.ma.masked_where(w>self.huge*.5,w)
+      #print w.min(),w.max()
 
       return w
 
@@ -274,7 +275,7 @@ class ABFile(object) :
 
 class ABFileBathy(ABFile) :
    """ Class for doing input/output on pairs of hycom .a and .b files. This is for bathymetry files"""
-   def __init__(self,basename,action,mask=False,real4=True,endian="big",idm=None,jdm=None) :
+   def __init__(self,basename,action,mask=True,real4=True,endian="big",idm=None,jdm=None) :
 
       super(ABFileBathy,self).__init__(basename,action,mask=mask,real4=real4,endian=endian)
       if action == "r" :
@@ -330,7 +331,7 @@ class ABFileBathy(ABFile) :
       self._fileb.write("min,max %s =%16.5f%16.5f\n"%("depth",hmin,hmax))
 
 
-   def read_field(self,fieldname,mask) :
+   def read_field(self,fieldname) :
       """ Read field corresponding to fieldname and level from bathy file"""
       #print self._fields
       record = None
@@ -355,6 +356,97 @@ class ABFileBathy(ABFile) :
          ret = (None,None)
       return ret
 
+class ABFileRmu(ABFile) :
+   """ Class for doing input/output on pairs of hycom .a and .b files. This is for nesting/relax rmu files"""
+   def __init__(self,basename,action,mask=False,real4=True,endian="big",idm=None,jdm=None,cline1="",cline2="") :
+
+      super(ABFileRmu,self).__init__(basename,action,mask=mask,real4=real4,endian=endian)
+      self._cline1=cline1
+      self._cline2=cline2
+      if action == "w" :
+         pass
+      else :
+         self.read_header()
+         self.read_field_info()
+         self._open_filea_if_necessary(numpy.zeros((self._jdm,self._idm)))
+
+
+   def write_header(self) :
+      self._fileb.write("%s\n"%self._cline1)
+      self._fileb.write("%s\n"%self._cline2)
+      self._fileb.write("\n")
+      self._fileb.write("\n")
+      self._fileb.write("i/jdm =%5d %5d\n"%(self._idm,self._jdm))
+
+
+   def read_header(self) :
+      self._header=[]
+      self._header.append(self.readline())
+      self._header.append(self.readline())
+      self._header.append(self.readline())
+      self._header.append(self.readline())
+      self._header.append(self.readline())
+      m = re.match("i/jdm[ ]*=[ ]*([0-9]+)[ ]+([0-9]+)",self._header[4].strip())
+      if m :
+         self._idm = int(m.group(1))
+         self._jdm = int(m.group(2))
+      else :
+         raise  AFileError, "Unable to parse idm, jdm from header. File=%s, Parseable string=%s"%(
+               self._filename, self._header[4].strip())
+
+#   def read_field_info(self) :
+#      fieldkeys=["field","min","max"]
+#      self._fields={}
+#      line=self.readline().strip()
+#      i=0
+#      while line :
+#         m = re.match("^min,max[ ]+(.*)[ ]*=(.*)",line)
+#         if m :
+#            self._fields[i] = {}
+#            self._fields[i]["field"] = m.group(1).strip()
+#            elem = [elem.strip() for elem in m.group(2).split() if elem.strip()]
+#            self._fields[i]["min"] = float(elem[0])
+#            self._fields[i]["max"] = float(elem[1])
+#         i+=1
+#         line=self.readline().strip()
+
+
+   def write_field(self,field,mask,fieldname,fmt="%16.8g") :
+      self._open_filea_if_necessary(field)
+      if self._firstwrite :
+         self._jdm,self._idm=field.shape
+         self._firstwrite=False
+         self.write_header()
+      self.check_dimensions(field)
+      hmin,hmax = self._filea.writerecord(field,mask)
+      fmtstr="%%4s:  min,max =%s %s\n"%(fmt,fmt)
+      self._fileb.write(fmtstr%(fieldname,hmin,hmax))
+
+
+#   def read_field(self,fieldname) :
+#      """ Read field corresponding to fieldname and level from bathy file"""
+#      #print self._fields
+#      record = None
+#      for i,d in self._fields.items() :
+#         if d["field"] == fieldname :
+#            record=i
+#      if record  is not None :
+#         w = self._filea.read_record(record) 
+#      else :
+#         w = None
+#      return w
+
+
+   def bminmax(self,fieldname) :
+      record=None
+      for i,d in self._fields.items() :
+         if d["field"] == fieldname :
+            record=i
+      if record  is not None :
+         ret = (self._fields[i]["min"],self._fields[i]["max"])
+      else :
+         ret = (None,None)
+      return ret
 
 
 class ABFileGrid(ABFile) :
@@ -826,10 +918,16 @@ class ABFileRelaxZ(ABFile) :
 def write_bathymetry(exp,version,d,threshold) :
    myfile="depth_%s_%02d"%(exp,version)
    logger.info("Writing to %s.[ab]"%myfile)
+   #regf = ABFileBathy(myfile,"w",idm=d.shape[0],jdm=d.shape[1],mask=True)
+   #print type(d),d.min(),d.max()
+   #mask=d <= threshold
+   #regf.write_field(d,mask)
+   #No mask!
+   tmp = numpy.copy(d)
+   mask=d<=threshold
+   tmp[mask] = AFile.huge
    regf = ABFileBathy(myfile,"w",idm=d.shape[0],jdm=d.shape[1],mask=True)
-   d=numpy.copy(d)
-   mask=d <= threshold
-   regf.write_field(d,mask)
+   regf.write_field(tmp,mask)
    regf.close()
 
 
@@ -847,4 +945,25 @@ def read_regional_grid(endian="big") :
       res[fldname] = regf.read_field(fldname)
    regf.close()
    return res
+
+
+
+
+def write_diag_nc(datadict,fname="hycom_grid.nc") :
+   try :
+      import netCDF4
+   except :
+      logger.error("Unable to import netCDF4 module - will not write diag to %s"%fname)
+      return
+   tmp = datadict["plon"]
+   ## Create netcdf file with all  stages for analysis
+   logger.info("Writing bathymetry to file %s"%fname)
+   ncid = netCDF4.Dataset(fname,"w")
+   ncid.createDimension("idm",tmp.shape[1])
+   ncid.createDimension("jdm",tmp.shape[0])
+   for i in datadict.keys() :
+      ncid.createVariable(i,"f8",("jdm","idm"))
+   for i in datadict.keys() :
+      ncid.variables[i][:]=datadict[i][:]
+   ncid.close()
 
