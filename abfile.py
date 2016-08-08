@@ -633,7 +633,7 @@ class ABFileArchv(ABFile) :
          self.write_header()
       self.check_dimensions(field)
       hmin,hmax = self._filea.writerecord(field,mask)
-      fmtstr="%-9s=%11d%11.3f%3d%7.3f%16.8e%16.8e\n"
+      fmtstr="%-9s=%11d%11.3f%3d%7.3f%16.7e%16.7e\n"
       self._fileb.write(fmtstr%(fieldname,time_step,model_day,k,dens,hmin,hmax))
 
 
