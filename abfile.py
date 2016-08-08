@@ -201,6 +201,10 @@ class ABFile(object) :
 
 
    def writeitem(self,key,value) :
+      if value is None :
+         msg = "key %s is not defined "%key
+         logger.error(msg)
+         raise ValueError,msg
       if type(value) == type(1) :
          tmp ="%5d   '%-6s'\n"%(value,key)
       else :
@@ -541,7 +545,14 @@ class ABFileArchv(ABFile) :
    """ Class for doing input/output on pairs of hycom .a and .b files. This is for archv files"""
    fieldkeys=["field","step","day","k","dens","min","max"]
    def __init__(self,basename,action,mask=False,real4=True,endian="big",
-         iversn=None,iexpt=None,yrflag=None,idm=None,jdm=None) :
+         iversn=None,iexpt=None,yrflag=None,cline1="",cline2="",cline3="") :
+
+      self._cline1=cline1
+      self._cline2=cline2
+      self._cline3=cline3
+      self._iversn=iversn
+      self._iexpt =iexpt 
+      self._yrflag=yrflag
 
       super(ABFileArchv,self).__init__(basename,action,mask=mask,real4=real4,endian=endian)
       if self._action == "r" :
@@ -549,8 +560,9 @@ class ABFileArchv(ABFile) :
          self.read_field_info()
          self._open_filea_if_necessary(numpy.zeros((self._jdm,self._idm)))
       elif self._action == "w" :
-         # Need to test if idm, jdm, etc is set at this stage
-         raise NotImplementedError,"ABFileArchv writing not implemented"
+         ## Need to test if idm, jdm, etc is set at this stage
+         #raise NotImplementedError,"ABFileArchv writing not implemented"
+         pass
 
 
    def read_header(self) :
@@ -598,6 +610,31 @@ class ABFileArchv(ABFile) :
       else :
          w = None
       return w
+
+
+   def write_header(self) :
+      self._fileb.write(self._cline1+"\n")
+      self._fileb.write(self._cline2+"\n")
+      self._fileb.write(self._cline3+"\n")
+      self._fileb.write("12345678901234567890123456789012345678901234567890123456789012345678901234567890\n")
+      self.writeitem("iversn",self._iversn)
+      self.writeitem("iexpt" ,self._iexpt)
+      self.writeitem("yrflag",self._yrflag)
+      self.writeitem("idm"   ,self._idm)
+      self.writeitem("jdm"   ,self._jdm)
+      self._fileb.write("field       time step  model day  k  dens        min              max\n")
+
+
+   def write_field(self,field,mask,fieldname,time_step,model_day,k,dens) :
+      self._open_filea_if_necessary(field)
+      if self._firstwrite :
+         self._jdm,self._idm=field.shape
+         self._firstwrite=False
+         self.write_header()
+      self.check_dimensions(field)
+      hmin,hmax = self._filea.writerecord(field,mask)
+      fmtstr="%-9s=%11d%11.3f%3d%7.3f%16.8e%16.8e\n"
+      self._fileb.write(fmtstr%(fieldname,time_step,model_day,k,dens,hmin,hmax))
 
 
    @property
