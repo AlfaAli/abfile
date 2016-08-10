@@ -79,6 +79,15 @@ class AFile(object) :
 
 
    def writerecord(self,h,mask,record=None) :
+      """ Write one record to file.
+
+      Arguments:   
+        h     : data field to write. Must conform to shape (self._jdm, self._idm)
+        mask  : where mask is set to True, h is set to spval. Ignored if masking not set in class
+
+      Keyword Arguments:
+        record:  not implemented yet
+      """
 
       # Initialize writing array (1D)
       w=numpy.ones(self._n2drec)*self._spval
@@ -95,15 +104,19 @@ class AFile(object) :
 
       logger.debug("zaiowr_a h shape = %s, w.size=%d"%(h.shape,w.size,))
       # Calc min and mask
+      #print self._mask
       if self._mask :
          I=numpy.where(~mask)
          hmax=h[I].max()
          hmin=h[I].min()
          J=numpy.where(mask.flatten())
          w[J] = self._spval
+         #print "writerecord w mask:",numpy.count_nonzero(mask),mask.size
+         #print "writerecord w mask:",hmin,hmax,w[0:self._idm*self._jdm].min(),w[0:self._idm*self._jdm].max()
       else :
          hmax=h.max()
          hmin=h.min()
+         #print "writerecord wo mask:",hmin,hmax
 
       if self._real4 :
          struct_fmt="f"
@@ -544,7 +557,7 @@ class ABFileGrid(ABFile) :
 class ABFileArchv(ABFile) :
    """ Class for doing input/output on pairs of hycom .a and .b files. This is for archv files"""
    fieldkeys=["field","step","day","k","dens","min","max"]
-   def __init__(self,basename,action,mask=False,real4=True,endian="big",
+   def __init__(self,basename,action,mask=True,real4=True,endian="big",
          iversn=None,iexpt=None,yrflag=None,cline1="",cline2="",cline3="") :
 
       self._cline1=cline1
