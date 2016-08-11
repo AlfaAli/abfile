@@ -622,6 +622,8 @@ class ABFileArchv(ABFile) :
          w = self._filea.read_record(record) 
       else :
          w = None
+         logger.warning("Could not find field %s at level %d"%(fieldname,level))
+         logger.warning("Available fields are : %s" % " ".join(self.fieldnames))
       return w
 
 
