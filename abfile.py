@@ -122,26 +122,47 @@ class AFile(object) :
          struct_fmt="f"
       else :
          struct_fmt="d"
-      binpack=struct.pack("%s%d%s"%(self._endian_structfmt,w.size,struct_fmt),*w[:])
-      self._filea.write(binpack)
+
+      # 1) Use struct
+      #binpack=struct.pack("%s%d%s"%(self._endian_structfmt,w.size,struct_fmt),*w[:])
+      #self._filea.write(binpack)
+
+      # 2) Alternative using numpy.ndarray.tofile
+      w = w.astype(numpy.dtype("%s%s"%(self._endian_structfmt,struct_fmt)))
+      #print w.dtype,w.dtype.byteorder
+      w.tofile(self._filea)
+
+
+
+
       return hmin,hmax
 
 
    def read_record(self,record) :
       self.seekrecord(record)
-      if self._real4 :
-         raw = self._filea.read(self.n2drec*4)
-         fmt =  "%s%df"%(self._endian_structfmt,self.n2drec)
-      else :
-         raw = self._filea.read(self.n2drec*8)
-         fmt =  "%s%dd"%(self._endian_structfmt,self.n2drec)
 
-      w =  numpy.array(struct.unpack(fmt,raw))
+      ##1) Use struct
+      #if self._real4 :
+      #   raw = self._filea.read(self.n2drec*4)
+      #   fmt =  "%s%df"%(self._endian_structfmt,self.n2drec)
+      #else :
+      #   raw = self._filea.read(self.n2drec*8)
+      #   fmt =  "%s%dd"%(self._endian_structfmt,self.n2drec)
+      #w =  numpy.array(struct.unpack(fmt,raw))
+
+      #2) Use numpy fromfile
+      if self._real4 :
+         struct_fmt="f"
+      else :
+         struct_fmt="d"
+      mydtype=numpy.dtype("%s%s"%(self._endian_structfmt,struct_fmt))
+      w=numpy.fromfile(self._filea,dtype=mydtype,count=self.n2drec)
 
       w=w[0:self.idm*self.jdm]
       w.shape=(self.jdm,self.idm)
       w=numpy.ma.masked_where(w>self.huge*.5,w)
       #print w.min(),w.max()
+
 
       return w
 
