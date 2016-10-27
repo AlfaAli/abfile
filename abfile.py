@@ -790,6 +790,10 @@ class ABFileForcing(ABFile) :
       return ret
       
 
+   @property
+   def field_times(self) :
+      return set([elem["dtime1"] for elem in self._fields.values()])
+
 class ABFileRestart(ABFile) :
    """ Class for doing input/output on pairs of hycom .a and .b files. This is for restart files"""
    fieldkeys=["field","step","day","k","dens","min","max"]
