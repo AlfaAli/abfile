@@ -203,7 +203,9 @@ class ABFile(object) :
    not meant to be used directly """
 
    def __init__(self,basename,action,mask=False,real4=True,endian="big") :
-      self._basename=basename
+      #self._basename=basename
+      self._basename=ABFile.strip_ab_ending(basename) # Ensure .ab ending is stripped
+      #print basename,self._basename
       self._action=action
       self._fileb = open(self._basename+".b",self._action)
       self._filea = None
@@ -302,6 +304,29 @@ class ABFile(object) :
       return self._jdm
 
 
+   @property
+   def fields(self) :
+      return self._fields
+
+   @classmethod
+   def strip_ab_ending(cls,fname) :
+      m=re.match( "^(.*)(\.[ab]$)", fname)
+      if m :
+         return m.group(1)
+      else :
+         return fname
+
+   @classmethod
+   def check_minmax(cls,w,mydict) :
+#     if (abs(hmina(k)-hminb).gt.abs(hminb)*1.e-4 .or.
+#                        &          abs(hmaxa(k)-hmaxb).gt.abs(hmaxb)*1.e-4     ) then
+      testmin = numpy.abs(w.min()-mydict["min"]) > numpy.abs(mydict["min"])*1.e-4 
+      testmax = numpy.abs(w.max()-mydict["max"]) > numpy.abs(mydict["max"])*1.e-4 
+      if testmin or testmax :
+         msg="File %s a b values inconsistent: Field %s at %d, .a min/max: %12.6g %12.6g  .a min/max: %12.6g  %12.6g " %(
+            w.min(),w,max(),mydict["min"],mydict["max"])
+         logger.error(msg)
+         raise ValueError,msg
 
    #@classmethod
    #def factory(cls,bfile) :
@@ -309,6 +334,9 @@ class ABFile(object) :
 
 
 
+   @property
+   def basename(self) :
+      return self._basename
 
 
 
@@ -670,7 +698,7 @@ class ABFileArchv(ABFile) :
          self.write_header()
       self.check_dimensions(field)
       hmin,hmax = self._filea.writerecord(field,mask)
-      fmtstr="%-9s=%11d%11.3f%3d%7.3f%16.7e%16.7e\n"
+      fmtstr="%-9s=%11d%11.2f%3d%7.3f%16.7E%16.7E\n"
       self._fileb.write(fmtstr%(fieldname,time_step,model_day,k,dens,hmin,hmax))
 
 
@@ -688,6 +716,15 @@ class ABFileArchv(ABFile) :
       else :
          ret = (None,None)
       return ret
+
+   @property 
+   def iversn(self) : return self._iversn
+
+   @property 
+   def iexpt(self) : return self._iexpt
+
+   @property 
+   def yrflag(self) : return self._yrflag
       
       
 class ABFileForcing(ABFile) :
@@ -817,11 +854,14 @@ class ABFileRestart(ABFile) :
 
 
    def read_header(self) :
+      #RESTART2: iexpt,iversn,yrflag,sigver =    990    22     3     2
+      #RESTART2: nstep,dtime,thbase =      19636860    40910.12500000000         34.00000000000000
       self._header=[]
       self._header.append(self.readline())
       self._header.append(self.readline())
 
-      print self._header[0]
+      logger.info(self._header[0].strip())
+      logger.info(self._header[1].strip())
       m=re.match("RESTART2: iexpt,iversn,yrflag,sigver[ ]*=[ ]*([0-9]+)[ ]+([0-9]+)[ ]+([0-9]+)[ ]+([0-9]+)",self._header[0])
       self._iexpt=int(m.group(1))
       self._iversn=int(m.group(2))
@@ -833,12 +873,8 @@ class ABFileRestart(ABFile) :
       self._thbase=float(m.group(2))
 
    def read_field_info(self) :
-      # Get list of fields from .b file
-      #field       time step  model day  k  dens        min              max
-      #montg1   =      67392    351.000  1 25.000   0.0000000E+00   0.0000000E+00
-      #
+      #u       : layer,tlevel,range =   1  1    -9.2374402E-01   6.0595530E-01
       self._fields={}
-      line=self.readline()
       line=self.readline().strip()
       i=0
       while line :
@@ -852,6 +888,7 @@ class ABFileRestart(ABFile) :
             self._fields[i]["max"] = float(m.group(5))
          else :
             raise NameError,"unable to parse line %s"%line
+         #print i,line
          i+=1
          line=self.readline().strip()
 
@@ -864,6 +901,7 @@ class ABFileRestart(ABFile) :
             record=i
       if record  is not None :
          w = self._filea.read_record(record) 
+         ABFile.check_minmax(w,self._fields[record]) # Always do this check
       else :
          w = None
       return w
@@ -887,9 +925,82 @@ class ABFileRestart(ABFile) :
    pass
 
 
-class ABFileRelax(ABFileArchv) :
-   """ Class for doing input/output on pairs of hycom .a and .b files. This is for hybrid coords data used by hycom """
-   pass
+class ABFileRelax(ABFile) :
+   """ Class for doing input/output on pairs of hycom .a and .b files. This is for hybrid coord relaxation data used by hycom """
+   fieldkeys=["field","layer","dens","min","max"]
+   def __init__(self,basename,action,mask=False,real4=True,endian="big", idm=None,jdm=None,
+                cline1="",cline2=""):
+      super(ABFileRelax,self).__init__(basename,action,mask=mask,real4=real4,endian=endian)
+      self._cline1=cline1
+      self._cline2=cline2
+      if action == "w" :
+         raise NotImplementedError
+         pass
+      else :
+         self.read_header()
+         self.read_field_info()
+         self._open_filea_if_necessary(numpy.zeros((self._jdm,self._idm)))
+
+#woa2013 Climatology
+#Expt 99.0  nhybrd=32 nsigma=14 ds00= 0.50 dp00= 3.00 dp00x= 450.0 dp00f=1.180
+#Layered averages w.r.t. Sigma-2,  levtop=1 (sigver= 2)
+#Potential Temperature
+#i/jdm =  800  760
+   def read_header(self) :
+      self._header=[]
+      self._header.append(self.readline())
+      self._header.append(self.readline())
+      self._header.append(self.readline())
+      self._header.append(self.readline())
+      self._header.append(self.readline())
+      #print "test",self._header
+      m = re.match("i/jdm[ ]*=[ ]*([0-9]+)[ ]+([0-9]+)",self._header[4].strip())
+      if m :
+         self._idm = int(m.group(1))
+         self._jdm = int(m.group(2))
+      else :
+         raise  BFileError, "Unable to parse idm, jdm from header. File=%s, Parseable string=%s"%(
+               self._basename, self._header[4].strip())
+      #print self._idm,self._jdm
+
+
+
+   def read_field_info(self) :
+      # Typical line 
+      #tem: month,layer,dens,range = 01  01 28.100  -3.3520899E+00   1.0784083E+01
+      self._fields={}
+      line=self.readline().strip()
+      i=0
+      while line :
+         m = re.match("^([a-z_ ]+):[ ]*month[ ]*,[ ]*layer[ ]*,[ ]*dens[ ]*,[ ]*range[ ]*=[ ]*([^ ]+)[ ]+([^ ]+)[ ]+([^ ]+)[ ]+([^ ]+)[ ]+([^ ]+)",line)
+         if m :
+            self._fields[i] = {}
+            self._fields[i]["field"] = m.group(1).strip()
+            self._fields[i]["month"] = int(m.group(2))
+            self._fields[i]["k"] = int(m.group(3))
+            self._fields[i]["dens"] = float(m.group(4))
+            self._fields[i]["min"] = float(m.group(5))
+            self._fields[i]["max"] = float(m.group(6))
+            #print self._fields[i]
+         else :
+            raise NameError,"unable to parse line %s"%line
+         #print i,line
+         i+=1
+         line=self.readline().strip()
+
+
+   def read_field(self,fieldname,level,month) :
+      """ Read field corresponding to fieldname and level from archive file"""
+      record = None
+      for i,d in self._fields.items() :
+         if d["field"] == fieldname and level == d["k"] and d["month"] == month :
+            record=i
+      if record  is not None :
+         w = self._filea.read_record(record) 
+         ABFile.check_minmax(w,self._fields[record]) # Always do this check
+      else :
+         w = None
+      return w
 
 
       
